@@ -1,0 +1,369 @@
+
+/*11. Formula?i în limbaj natural ?i implementa?i 5 cereri SQL complexe ce vor utiliza, în
+ansamblul lor, urm?toarele elemente:
+a. opera?ie join pe cel pu?in 4 tabele
+b. filtrare la nivel de linii
+c. subcereri nesincronizate în care intervin cel pu?in 3 tabele
+d. utilizarea a cel pu?in 2 func?ii pe ?iruri de caractere, 2 func?ii pe date
+calendaristice, a func?iilor NVL ?i DECODE, a cel pu?in unei expresii CASE
+--DECODE (‘b’, ‘a’, ‘b’, ‘c’) =‘c’
+--DECODE (‘c’, ‘a’, ‘b’, ‘c’) = ‘c’ ---echivalent cu case
+e. ordon?ri 
+*/
+
+/*
+desc scriitori;
+desc carti;
+desc categorii;
+select * from carti;
+-----------------------------------------------------------------------------------------------
+1.Sa se mentioneze scriitorii, seriile si volumele care le compun 
+ale scriitorilor contemporani ce au scris serii de tipul romantic. 
+-- cerere facuta pentru a exemplifica operatie join pe 5 tabele
+-- filtrare la nivel de linii
+-- lower() =>functie pe siruri de caractere
+*/
+select  sc.nume "Scriitor", s.nume "Serie", c.denumire "Volum" 
+from scriitori sc join are a on(sc.cod_scriitor=a.cod_scriitor) 
+        join categorii categ on(categ.cod_categorie=a.cod_categorie)
+        join carti c on (c.cod_carte=a.cod_carte)
+        join serii s on (s.cod_serie=c.cod_serie)
+where data_deces is null and lower(categ.gen) = 'romantic' ;
+        --in baza de date sunt inserate mai multe serii si carti scrise de diversi scriitori
+        --seria Harry Potter este eliminata pentru ca nu este de tip romantic
+        --cartile scriitoarei Karen Witemeyer, chiar daca respecta categoria, sunt 
+              --eliminate pentru ca nu compun/apartin de vreo serie
+        --Seria lui Alexandre Dumas este eliminata pentru ca acesta nu este contemporan
+              --(inca viu) si, in adaos, nu respecta categoria ceruta.
+  
+/*  
+----------------------------------------------------------------------------------------------            
+select * from angajati;
+select * from librarii;
+select * from locatii;
+select * from orase;
+
+2. In ce judet lucreaza vanzatoarea Popescu Maria? Daca judetul nu exista(cazul Bucurestiului), se trece orasul din care face parte.
+Dar Ionescu Mircea?
+--cerere creata pentru a exemplifica CASE-ul
+--initcap - functie pe siruri de caractere
+--filtrare la nivel de linii
+--3 joinuri
+*/
+select a.nume, a.prenume,
+        case
+            when o.judet is not null then o.judet
+            else  o.denumire 
+        end "Aici lucreaza"
+from angajati a  join librarii lib on (a.cod_librarie=lib.cod_librarie) 
+        join locatii loc on(lib.cod_locatie = loc.cod_locatie) 
+        join orase o on(loc.cod_oras=o.cod_oras)
+where initcap(a.nume) = 'Popescu' and initcap(a.prenume) = 'Maria';  
+
+---Iar pentru Ionescu Mircea
+select a.nume, a.prenume,
+        case
+            when o.judet is not null then o.judet
+            else  o.denumire 
+        end "Aici lucreaza"
+from angajati a  join librarii lib on (a.cod_librarie=lib.cod_librarie) 
+        join locatii loc on(lib.cod_locatie = loc.cod_locatie) 
+        join orase o on(loc.cod_oras=o.cod_oras)
+where initcap(a.nume) = 'Ionescu' and initcap(a.prenume) = 'Mircea'; 
+
+----------------------------------------------------------------------------------------------------------
+/*
+3.
+Scrieti lista cartile vandute in Cluj(JUDET) in ordinea vanzarii lor, de la bestseller pana la 
+cea care este vanduta de cele mai putine ori, mentionandu-se titlul acestora si numarul de  exemplare vandute.
+--s-a folosit order by 
+--subcereri nesincronizate (3)
+--lower(functie cu tip de caractere)
+--join
+--group by
+--filtrare la nivel de linii
+*/
+select count(cump.cod_carte) "Numar carti vandute", car.denumire "Titlu" 
+from cumparari cump join carti car on(cump.cod_carte=car.cod_carte)
+where cod_angajat in (
+            select cod_angajat     --Ionescu Andrian(403) lucreaza la libraria cu codul  90; Mihaita(411) si Popovici(410) la libraria cu codul 60
+            from angajati
+            where lower(tip_angajat) = 'vanzator' 
+            and cod_librarie in (select cod_librarie   --sunt 2 librarii in cluj_napoca; coduri: 60 si 90
+                                from librarii
+                                where cod_oras in (
+                                                    select cod_oras      --cod cluj 2030
+                                                    from orase
+                                                    where nvl(upper(judet),'NU') = 'CLUJ'
+                                                  )
+                                )
+                    )
+group by cump.cod_carte, denumire
+order by count(cump.cod_carte) desc;
+
+-------------------------------------------------------------------------------------------
+/*
+4.
+Afiseaza acum cate luni a fost vanduta cartea 'Mostenirea' (se afiseaza pentru toate vanzarile)
+--am folosit functiile sysdate, round, months_between 
+*/
+select  round(months_between(sysdate, data_cump)) "Cate luni au trecut"
+from cumparari 
+where (cod_carte) =ALL (
+                        select  cod_carte 
+                        from carti
+                        where denumire = 'Mostenirea' 
+                                    and cod_carte =ANY (select cod_carte
+                                                        from cumparari)
+                             );
+                             
+
+/*
+----------------------------------------------------------------------------------------------
+5.
+Un client vrea sa cumpere toata seria de carti 'Faptele credintei', inainte de a 
+cumpara, vrea sa stie daca aceasta se gaseste in limba franceza, iar in caz contrar, 
+in limba engleza. daca nici asa nu se gaseste, vrea sa i se spuna ca sa nu mai cumpere
+--cerere creata pentru a folosi functia DECODE
+--pe langa aceasta, se folosesc si subcereri necorelate pt a spori complexitatea cererii, functia upper()
+*/
+select  decode(lower(limba),'franceza', 'Se gaseste in limba franceza')  "franceza",
+        decode(lower(limba),'engleza', 'Nu se gaseste in franceza, dar se gaseste in limba engleza')  "engleza",
+        'Ne pare rau, nu se gaseste in nicio limba dorita' "negativ"
+from limbi
+where cod_limba  =ANY (select cod_limba
+                    from traduse
+                    where cod_carte in( select cod_carte
+                                        from carti
+                                        where cod_serie = (
+                                                            select cod_serie
+                                                            from serii
+                                                            where UPPER(nume) = 'FAPTELE CREDINTEI'
+                                                         )
+                                    )
+                    );
+
+select*from traduse;
+
+/*
+----------------------------------------------------------------------------------------------
+11: subcereri sincronizate în care intervin cel pu?in 3 tabele
+grup?ri de date, func?ii grup, filtrare la nivel de grupuri. 
+
+6.Precizati codul, numele si numarul de carti vandute de angajatii care au vandut un numar
+maxim de carti, selectandu-i doar pe aceia care lucreaza la o librarie care are numar maxim de angajati.Sa se precizeze
+si unde se gasesc aceste librarii
+
+---am folosit mai mult de 3 subcereri corelate si grupari de date,
+--functii grup(count, max), alegerea doar unor linii(having)
+--subcereri necorelate
+--am integrat si clauza WITH cu ajutorul careia am scris o parte din blocul 
+--    din cerere inainte de a-l utiliza in cerere
+*/
+with maxim as ( select max(count(cod_librarie)) max_libr   
+             from angajati
+             group by cod_librarie
+             ),        --numarul maxim de angajati dintr-o librarie
+numar_max_ang as (  select cod_librarie   
+                    from angajati
+                    having 
+                    count(cod_librarie) =
+                                ( select max_libr
+                                 from maxim
+                                 )
+                    group by cod_librarie
+                 )   --librariile in care se gaseste un numar maxim de angajati 
+
+select cod_angajat,  
+         ( select nume
+           from angajati
+           where cod_angajat=c.cod_angajat
+         ) "Nume angajat",  --trebuie sa trec din cumparari in angajati pentru a afla numele angajatului
+         (select count(cod_carte)
+          from cumparari
+          where c.cod_angajat=cod_angajat
+          group by cod_angajat
+         ) "Numar vanzari",  --vad cate carti a vandut un angajat
+         (select ( 
+                    select (
+                            select strada
+                            from locatii
+                            where cod_locatie=l.cod_locatie
+                            )
+                    from librarii l
+                    where ang.cod_librarie=cod_librarie
+                 )     --selectarea locatiei(strada) pentru angajati trecand prin 
+                       --cumparari-angajati-librarii-locatii
+         from angajati ang
+         where cod_angajat=c.cod_angajat
+         ) "Locatie librarie"
+from cumparari c 
+having count(cod_angajat) = (select max(count(cod_angajat)) 
+                              from cumparari
+                              group by cod_angajat
+                             )    --numarul maxim de carti vandute de un angajat
+    and cod_angajat in ( select cod_angajat   
+                        from angajati
+                        where cod_librarie in (select cod_librarie
+                                               from numar_max_ang)
+                        )   --angajatii care lucreaza intr-o librarie cu numar maxim de angajati
+group by cod_angajat;
+
+--------------------------------------------------------------------------------------------
+/*
+12. Implementarea a 3 opera?ii de actualizare (UPDATE) sau suprimare (DELETE) 
+a datelor utilizând subcereri.
+
+1. Locatia librariei de pe strada Doamnei din Bucuresti se muta pe strada 
+Apusului, numarul 11 (tot din Bucuresti)
+--m-am gandit la cazul in care in care ar exista 2 strazi cu acelasi nume, dar in orase diferite.
+--de aceea este necesar sa verific si daca orasul este cel corect, inainted e a produce schimbarea.
+*/
+UPDATE locatii
+SET strada = 'Strada Apusului', numar = 11
+WHERE initcap(strada) = 'Strada Doamnei'
+            and cod_oras in (select cod_oras
+                          from orase
+                          where initcap(denumire) = 'Bucuresti');
+                          
+--select * from locatii;  --am verificat modificarea
+
+/*
+----------------------------------------------------------------------------------------------
+2. Stergeti din lista de categorii acele categorii pentru care nu exista 
+nicio carte in librarii.
+*/
+delete
+from categorii
+where cod_categorie not in(select distinct cod_categorie     --11 categorii folosite din 13  
+                            from are);                    --de familie si geografie (nefolosite)
+                            
+--select* from categorii;   --am verificat modificarea
+
+/*
+----------------------------------------------------------------------------------------------
+3.Pentru a promova citirea cator mai multor carti romanesti, bibliotecile propun o reducere(10%) a 
+tuturor cartilor scrise de autori de nationalitate romana, indiferent de limba in care se gaseste.
+---sunt 3 carti scrise de autori romani =>se modifica 3 valori
+*/
+update carti
+set pret = pret - (pret*0.1)
+where cod_carte in (
+                    select distinct cod_carte
+                    from are
+                    where cod_scriitor in
+                                (
+                                select cod_scriitor 
+                                from scriitori
+                                where lower(nationalitate) =  'romana'
+                                )
+                );
+--select * from carti;     --am verificat modificarea
+commit;
+
+/*   
+----------------------------------------------------------------------------------------------------------
+16. Formula?i în limbaj natural ?i implementa?i în SQL: o cerere ce 
+utilizeaz? opera?ia outerjoin pe minimum 4 tabele.
+
+Sa se afiseze pentru fiecare oras cati angajati si salariul mediu in functie de oras(salariul mediu nu poate fi null, daca este,
+cazul. se inlocuieste cu 0). Ordonati-le de la orasul in care se plateste cel mai bine pana la cel mai prost platit.
+
+--a fost nevoie de 3 left outer join-uri deoarece exista orase in care nu se gasesc locatiile unor
+--librarii, de asemenea, sunt locatii in care nu sunt librarii, deci nici angajari. Cu ajutorul 
+--left joinului, am putut sa le selectez pe toate netinand cont daca se completeaza cu valori de null. 
+--fiecare left join este important pentru a putea afisa datele dorite
+*/
+select o.denumire, count(cod_angajat) "Numar angajati", nvl(avg(salariu),0) "Salariu mediu"
+from orase o left join locatii loc on (o.cod_oras=loc.cod_oras) 
+            left join librarii lib on(loc.cod_locatie=lib.cod_locatie)
+            left join angajati a on (lib.cod_librarie=a.cod_librarie)
+group by o.denumire
+order by nvl(avg(salariu),0) desc;
+
+/*
+----------------------------------------------------------------------------------------------------------
+16. Formula?i în limbaj natural ?i implementa?i în SQL: dou? cereri ce utilizeaz? opera?ia division.
+
+1. Sa se afiseze scriitori care au in librarie carti cel putin de aceleasi categorii ca si scriitoarea Karen Witemeyer.
+--Witemeyer(106) a scris carti de categoriile cu codurile 10,11,14
+ --108 a scris carti cu codul 14, 11, 10
+--106 a scris carti cu codul 14, 11, 10, 12  ->se accepta  ->Janette Oke
+--104 a scris carti cu codul 14, 11, 10, 12  ->se accepta   ->T. Davis Bunn
+--110 a scris carti cu codul 11, 12, 21      -> se respinge pentru ca nu este si codul 14, 10
+--107 a scris carti cu codul 11, 10, 17      -> se respinge pentru ca nu este si codul 14
+--109 a scris carti cu codul 11, 18, 19, 20,  -> se respinge pentru ca nu este si codul 14, 10
+--100 a scris carti cu codul 16               -> se respinge
+--105 a scris carti cu codul 22              -> se respinge
+
+--caut  pentru fiecare scriitor in 'are' codurile (10,11,14)--codurile categoriilor in domeniul carora a scris KAren Witemeyer
+--un scriitor poate are mai multe carti de un gen dorit si in acest caz se va selecta de mai multe ori
+--exemplu: scriitorul cu codul 104 are 8 carti incadrate in categoria cu codul 10 => va fi selectata de 8 ori
+--de aceea trebuie sa grupez in functie de scriitor(nume, prenume) si la numararea sa iau in considerare doar categoriile diferite
+*/
+select nume, prenume
+from are a join scriitori s on (s.cod_scriitor=a.cod_scriitor)
+where cod_categorie in (select distinct cod_categorie     --selectez codurile categoriile --10, 11, 14
+                        from are
+                        where cod_scriitor = ( select cod_scriitor
+                                               from scriitori 
+                                               where lower(prenume||nume) = 'karenwitemeyer'
+                                               )
+                        )
+        and a.cod_scriitor != ( select cod_scriitor
+                              from scriitori 
+                              where lower(prenume||nume) = 'karenwitemeyer'
+                              )
+group by a.cod_scriitor, nume, prenume                    
+having count(distinct cod_categorie) >= (   select count(distinct cod_categorie)   
+                                            from are
+                                            where cod_scriitor = ( select cod_scriitor
+                                                                   from scriitori 
+                                                                   where lower(prenume||nume) = 'karenwitemeyer'
+                                                                 )
+                                         );
+/*
+2. 
+select * from traduse;
+Sa se afiseze lista cartilor(doar codul) care au fost traduse exact in aceleasi limbi in care a fost tradusa si cartea cu codul 1071.
+--aceasta inseamna sa fie traduse fix in toate limbile respective, 
+--si sa nu fie traduse nicio alta limba
+--la final se afiseaza: 1067, 1068, 1069, 1070
+
+--cartea 1071 este tradusa in limbile cu codul 20 si 30
+--cartea 1065 - doar 20  ->se respinge
+--cartea 1066 - doar 20  ->se respinge
+--cartea 1067 - 20, 30  ->se accepta
+--cartea 1068 - 20, 30  ->se accepta
+--cartea 1069 - 20, 30  ->se accepta
+--cartea 1070 - 20, 30  ->se accepta
+--cartea 1072 - doar in 20  ->se respinge
+--...
+--cartea 1082 - 20, 30, 40  ->se respinge
+--cartea 1083 - 20, 30, 40  ->se respinge
+--...
+--cartea 1088 - 20, 30, 40  ->se respinge
+--cartea 1090 - 20, 40  ->se respinge
+*/
+select cod_carte
+from traduse
+where cod_limba in (select cod_limba   --20, 30
+                    from traduse
+                    where cod_carte = 1071
+                    )
+        and cod_carte != 1071
+group by cod_carte
+having count(cod_carte) = (select count(cod_limba)   
+                            from traduse
+                            where cod_carte = 1071
+                            )   --daca as scrie doar pana aici, ar spune ca sunt ok si cartile de la 1082 la 1088
+MINUS
+
+select cod_carte
+from traduse
+where cod_limba not in (select cod_limba   --20, 30
+                        from traduse
+                        where cod_carte = 1071
+                        );   --am eliminat cartile care erau traduse si in alte limbi pe langa cele dorite
+
+ 
